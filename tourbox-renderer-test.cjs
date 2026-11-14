@@ -1,8 +1,4 @@
-// For the verified TourBox Console 5.12.0 Beta10.1 Windows build. Node.js 20 or later.
-// Keep beside tourbox-hsl-triangle.mjs in this workspace's outputs directory.
-// node .\outputs\tourbox-renderer-test.cjs          Run the isolated renderer checks.
-// node .\outputs\tourbox-renderer-test.cjs --emit   Also generate work\render_review\color-pick-candidate.mjs.
-// This script reads TourBox's installation. It only writes the optional workspace scratch file.
+// Isolated renderer checks for the original archives listed in versions.json.
 
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
@@ -10,10 +6,32 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const rendererFilename = 'color-pick-CsEO1ybR.js';
-const rendererBaselineSha256 = '6b928f0296933e5aae0c3988ec95d0cec11e34aa5add95bbdcdd39f8a95a63f3';
-const hooksSha256 = 'd29505bcad7b049ccfdf9c92d17b2b9c2e417374042f11cd572f3c5ff5418115';
+const versions = require('./versions.json');
 const installedArchive = path.join(process.env.ProgramFiles, 'TourBox Console', 'app', 'resources', 'app.asar');
+
+const beta = versions[0];
+const stable = versions[1];
+const stableSymbols = {
+  _0x405308: '_0x5bd6a0', _0x2f7e0a: '_0x6bb61a', _0xf774fa: '_0x54cb88',
+  _0x23cf0d: '_0x534d2a', _0x5d5476: '_0x1d7960', _0x534239: '_0x53348c',
+  _0x57cd7b: '_0x25d525', _0x10ae00: '_0x37b18d', _0x3d9106: '_0x7d8a36',
+  _0x38af98: '_0x5e9796', _0x1d71c8: '_0xfa9be7', _0x3b55be: '_0x103433',
+  _0x420403: '_0x4ddd23', _0x4547: '_0x22db', _0x25d7: '_0x2c77', _0x3e927c: '_0x4ebe08',
+  _0x5cbff4: '_0x251eb9', _0x47f3f0: '_0x5c15f3', _0x27b731: '_0xd225d4', _0x372488: '_0x37dbdb',
+};
+
+function portSymbols(text, version) {
+  if (version === beta) return text;
+  assert.equal(version, stable, 'Unknown renderer port');
+  return text.replace(/\b_0x[\da-f]+\b/g, name => stableSymbols[name] ?? name);
+}
+
+function detectVersion(bytes) {
+  const hash = sha256(bytes);
+  const version = versions.find(item => item.original === hash);
+  assert(version, 'Unsupported original TourBox archive');
+  return version;
+}
 
 function sha256(bytes) {
   return crypto.createHash('sha256').update(bytes).digest('hex');
@@ -49,14 +67,14 @@ function readArchiveParts(archivePath) {
   return { html: archiveEntry(runtime['color-pick.html']).toString('utf8'), asset };
 }
 
-function readActiveRenderer(archivePath) {
+function readActiveRenderer(archivePath, version) {
   const { html, asset } = readArchiveParts(archivePath);
-  assert(html.includes(`./assets/${rendererFilename}`), 'Packaged color-picker HTML uses a different renderer');
-  return asset(rendererFilename, rendererBaselineSha256);
+  assert(html.includes(`./assets/${version.renderer}`), 'Packaged color-picker HTML uses a different renderer');
+  return asset(version.renderer, version.rendererHash);
 }
 
-function readHslToRgb(archivePath) {
-  const hooks = readArchiveParts(archivePath).asset('hooks-Fzz7vV7n.js', hooksSha256);
+function readHslToRgb(archivePath, version) {
+  const hooks = readArchiveParts(archivePath).asset(version.hooks, version.hooksHash);
   const start = hooks.indexOf('hslToRgb = ');
   const end = hooks.indexOf(', hslToHex = ', start);
   assert(start >= 0 && end > start, 'Color conversion body not found');
@@ -69,10 +87,10 @@ function replaceOnce(text, before, after) {
   return text.slice(0, start) + after + text.slice(start + before.length);
 }
 
-function createRendererCandidate(baseline) {
-  assert.equal(sha256(baseline), rendererBaselineSha256, 'Renderer differs from the tested baseline');
-  const beforeStart = '  if (_0x5dc959) {\n    const _0x47a3ed';
-  const beforeEnd = '  _0x23cf0d[_0x44aadf(1476)][_0x44aadf(562)]';
+function createRendererCandidate(baseline, version) {
+  assert.equal(sha256(baseline), version.rendererHash, 'Renderer differs from the tested baseline');
+  const beforeStart = version === beta ? '  if (_0x5dc959) {\n    const _0x47a3ed' : '  if (_0xcbc7a8) {\n    const _0x4cfd53';
+  const beforeEnd = version === beta ? '  _0x23cf0d[_0x44aadf(1476)][_0x44aadf(562)]' : '  _0x534d2a["hsvSquare"][_0x1ba55d(1075)]';
   const start = baseline.indexOf(beforeStart);
   const end = baseline.indexOf(beforeEnd, start);
   assert(start >= 0 && end > start, 'Original wheel redraw block not found');
@@ -116,30 +134,32 @@ function createRendererCandidate(baseline) {
   }
   colorWheelTextureState.set(_0x23cf0d, next);
 `;
-  let candidate = replaceOnce(baseline, baseline.slice(start, end), after);
+  let candidate = replaceOnce(baseline, baseline.slice(start, end), portSymbols(after, version));
   candidate = replaceOnce(candidate, '}, createColorWheelRenderer = (',
     '}, colorWheelTextureState = new WeakMap(), createColorWheelRenderer = (');
+  const eagerTriangle = version === beta
+    ? '  const _0x3f8576 = createTriangleCanvas(_0x57cd7b, _0x2f7e0a[_0x4bef59(1147)]), _0x38af98 = getHslTriangleDisplaySize(_0x57cd7b), _0x1d71c8 = createHiDpiCanvasNode(_0x3f8576, _0x38af98, _0x38af98, _0x38af98);'
+    : '  const _0x3c8d2a = createTriangleCanvas(_0x25d525, _0x6bb61a[_0x426bf8(1842)]), _0x5e9796 = getHslTriangleDisplaySize(_0x25d525), _0xfa9be7 = createHiDpiCanvasNode(_0x3c8d2a, _0x5e9796, _0x5e9796, _0x5e9796);';
+  candidate = replaceOnce(candidate, eagerTriangle,
+    portSymbols('  const _0x38af98 = getHslTriangleDisplaySize(_0x57cd7b), _0x1d71c8 = new hi$1({ width: _0x38af98, height: _0x38af98, hitSelf: false, hitChildren: false, smooth: true });', version));
   candidate = replaceOnce(candidate,
-    '  const _0x3f8576 = createTriangleCanvas(_0x57cd7b, _0x2f7e0a[_0x4bef59(1147)]), _0x38af98 = getHslTriangleDisplaySize(_0x57cd7b), _0x1d71c8 = createHiDpiCanvasNode(_0x3f8576, _0x38af98, _0x38af98, _0x38af98);',
-    '  const _0x38af98 = getHslTriangleDisplaySize(_0x57cd7b), _0x1d71c8 = new hi$1({ width: _0x38af98, height: _0x38af98, hitSelf: false, hitChildren: false, smooth: true });');
-  candidate = replaceOnce(candidate,
-    '  return updateColorWheelRenderer(_0x534239, _0x3d9106, ![]),',
-    `  colorWheelTextureState.set(_0x534239, {
+    portSymbols('  return updateColorWheelRenderer(_0x534239, _0x3d9106, ![]),', version),
+    portSymbols(`  colorWheelTextureState.set(_0x534239, {
     x: _0x57cd7b.centerX, y: _0x57cd7b.centerY,
     outerRadius: _0x57cd7b.outerRadius, innerRadius: _0x57cd7b.innerRadius,
     centerRadius: _0x57cd7b.centerAreaRadius, squareSize: _0x57cd7b.squareSize,
     wheelSize: _0x10ae00, ratio: getColorWheelRenderScale(),
     photoshopOrientation: isPSHueRing(), squareHue: _0x2f7e0a.value,
   });
-  return updateColorWheelRenderer(_0x534239, _0x3d9106, ![]),`);
+  return updateColorWheelRenderer(_0x534239, _0x3d9106, ![]),`, version));
   return candidate;
 }
 
-function addTriangleCache(candidate, moduleSource) {
+function addTriangleCache(candidate, moduleSource, version) {
   const exportLine = 'export function createHslTriangleRenderer';
   assert(moduleSource.includes(exportLine), 'Triangle module export changed');
   assert(!candidate.includes('cachedHslTriangleRenderer'));
-  const insertBefore = 'const _0x420403 = _0x4547;';
+  const insertBefore = portSymbols('const _0x420403 = _0x4547;', version);
   const declaration = `${moduleSource.replace(exportLine, 'function createHslTriangleRenderer')}
 let cachedHslTriangleRenderer;
 const drawCachedHslTriangle = (geometry, hue) => {
@@ -147,9 +167,9 @@ const drawCachedHslTriangle = (geometry, hue) => {
   return cachedHslTriangleRenderer(geometry, hue);
 };
 `;
-  const wrapper = replaceOnce(candidate, 'const triangle = createTriangleCanvas(_0xf774fa, hue);',
-    'const triangle = drawCachedHslTriangle(_0xf774fa, hue);');
-  return replaceOnce(wrapper, insertBefore, declaration + insertBefore);
+  const wrapper = replaceOnce(candidate, portSymbols('const triangle = createTriangleCanvas(_0xf774fa, hue);', version),
+    portSymbols('const triangle = drawCachedHslTriangle(_0xf774fa, hue);', version));
+  return replaceOnce(wrapper, insertBefore, portSymbols(declaration, version) + insertBefore);
 }
 
 function between(source, startMarker, endMarker) {
@@ -159,12 +179,12 @@ function between(source, startMarker, endMarker) {
   return source.slice(start, end);
 }
 
-function runFixture(baseline, rendererSource, decoder, hslToRgb) {
+function runFixture(baseline, rendererSource, decoder, version, hslToRgb) {
   const includeKernel = hslToRgb !== undefined;
   const candidate = rendererSource !== baseline;
   const functions = between(rendererSource, candidate ? 'colorWheelTextureState = ' : 'createColorWheelRenderer = ',
     '}, updatePreviewIndicator =');
-  const kernelText = includeKernel ? between(rendererSource, 'const RENDER_SCALE = ', 'const _0x420403 = _0x4547;') : '';
+  const kernelText = includeKernel ? between(rendererSource, 'const RENDER_SCALE = ', portSymbols('const _0x420403 = _0x4547;', version)) : '';
   const state = { hue: 0, size: 210, dpr: 1, orientation: true };
   const count = { ring: 0, triangle: 0, sqrt: 0, square: 0, forces: 0 };
   const view = new class NodeMock {
@@ -175,11 +195,7 @@ function runFixture(baseline, rendererSource, decoder, hslToRgb) {
     forceRender() { count.forces++; }
   }();
   const NodeMock = view.constructor;
-  const { createColorWheelRenderer, updateColorWheelRenderer } = vm.runInNewContext(`
-${decoder}
-${kernelText}
-const ${functions}};
-({ createColorWheelRenderer, updateColorWheelRenderer });`, {
+  const environment = {
     getColorWheelGeometry$1() {
       const outerRadius = state.size / 2 - 12;
       const innerRadius = outerRadius - (state.size === 210 ? 20 : 28);
@@ -215,7 +231,13 @@ const ${functions}};
         }; } };
       },
     },
-  });
+  };
+  const bindings = Object.fromEntries(Object.entries(environment).map(([name, value]) => [portSymbols(name, version), value]));
+  const { createColorWheelRenderer, updateColorWheelRenderer } = vm.runInNewContext(`
+${decoder}
+${kernelText}
+const ${functions}};
+({ createColorWheelRenderer, updateColorWheelRenderer });`, bindings, { timeout: 3000 });
 
   const snapshots = [];
   const renderer = createColorWheelRenderer(view, 300, 'hsv');
@@ -256,12 +278,12 @@ const ${functions}};
 }
 
 
-function verifyRendererCandidate(baseline, textureCandidate, combined, archivePath = installedArchive) {
-  const rotation = between(baseline, 'const _0x420403 = ', 'import {');
-  const decoder = `${rotation}\n${between(baseline, 'function _0x4547(', '\n}')}}\n${between(baseline, 'function _0x25d7(', '\n}')}}`;
-  const original = runFixture(baseline, baseline, decoder);
-  const optimized = runFixture(baseline, textureCandidate, decoder);
-  const optimizedWithCache = runFixture(baseline, combined, decoder, readHslToRgb(archivePath));
+function verifyRendererCandidate(baseline, textureCandidate, combined, archivePath, version) {
+  const rotation = between(baseline, portSymbols('const _0x420403 = ', version), 'import {');
+  const decoder = `${rotation}\n${between(baseline, portSymbols('function _0x4547(', version), '\n}')}}\n${between(baseline, portSymbols('function _0x25d7(', version), '\n}')}}`;
+  const original = runFixture(baseline, baseline, decoder, version);
+  const optimized = runFixture(baseline, textureCandidate, decoder, version);
+  const optimizedWithCache = runFixture(baseline, combined, decoder, version, readHslToRgb(archivePath, version));
   assert.deepEqual(optimized.map(({ ring }) => ring), [1, 1, 1, 1, 1, 1, 2, 3, 4, 4, 4, 5]);
   assert.deepEqual(optimized.map(({ triangle }) => triangle), [0, 0, 0, 1, 2, 2, 2, 2, 3, 3, 4, 5]);
   assert.deepEqual(optimizedWithCache.map(({ triangle }) => triangle), optimized.map(({ triangle }) => triangle));
@@ -270,40 +292,17 @@ function verifyRendererCandidate(baseline, textureCandidate, combined, archivePa
   return { original: original.at(-1), optimized: optimizedWithCache.at(-1) };
 }
 
-function emitScratchFile(candidate) {
-  const outputs = fs.realpathSync(__dirname);
-  assert.equal(path.basename(outputs).toLowerCase(), 'outputs', 'Keep the script in its workspace outputs folder');
-  const workspace = path.dirname(outputs);
-  const programFiles = [process.env.ProgramFiles, process.env['ProgramFiles(x86)'], process.env.ProgramW6432]
-    .filter(Boolean).map(directory => path.resolve(directory).toLowerCase());
-  for (const root of programFiles) {
-    assert(workspace.toLowerCase() !== root && !workspace.toLowerCase().startsWith(root + path.sep),
-      'The scratch file must be outside Program Files');
-  }
-  let destination = workspace;
-  for (const component of ['work', 'render_review']) {
-    destination = path.join(destination, component);
-    if (!fs.existsSync(destination)) fs.mkdirSync(destination);
-    assert.equal(fs.realpathSync(destination).toLowerCase(), destination.toLowerCase(),
-      'The scratch folder must stay inside the workspace');
-  }
-  const output = path.join(destination, 'color-pick-candidate.mjs');
-  fs.writeFileSync(output, candidate, { flag: 'wx' });
-  return output;
-}
-
 if (require.main === module) {
-  const flags = process.argv.slice(2);
-  assert(flags.length === 0 || (flags.length === 1 && flags[0] === '--emit'), 'Usage: node tourbox-renderer-test.cjs [--emit]');
-  const baseline = readActiveRenderer(installedArchive);
-  const textureCandidate = createRendererCandidate(baseline);
+  assert(process.argv.length <= 3, 'Usage: node tourbox-renderer-test.cjs [original-asar]');
+  const archivePath = process.argv[2] ?? installedArchive;
+  const version = detectVersion(fs.readFileSync(archivePath));
+  const baseline = readActiveRenderer(archivePath, version);
+  const textureCandidate = createRendererCandidate(baseline, version);
   const kernel = fs.readFileSync(path.join(__dirname, 'tourbox-hsl-triangle.mjs'), 'utf8');
-  const combined = addTriangleCache(textureCandidate, kernel);
-  const counts = verifyRendererCandidate(baseline, textureCandidate, combined);
-  const emitted = flags.length ? emitScratchFile(combined) : undefined;
-  console.log(JSON.stringify({ checksPassed: true, baselineSha256: sha256(baseline), candidateSha256: sha256(combined),
-    counts, emitted }, null, 2));
+  const combined = addTriangleCache(textureCandidate, kernel, version);
+  const counts = verifyRendererCandidate(baseline, textureCandidate, combined, archivePath, version);
+  console.log(JSON.stringify({ version: version.version, checksPassed: true, counts }, null, 2));
 }
 
 module.exports = { readActiveRenderer, createRendererCandidate, addTriangleCache, readHslToRgb,
-  verifyRendererCandidate, installedArchive };
+  verifyRendererCandidate, installedArchive, detectVersion, replaceOnce };

@@ -1,0 +1,21 @@
+[
+  {
+    "version": "5.12.0-beta10.1",
+    "original": "b6af1d346bac18f61db88911195f23152c393cf2f1246f2d9aabbfa6a375eb1f",
+    "previous": "544e42797d70889773b59e603af0e11b77318cdd02157e9aabe887629a208b43",
+    "patched": "833870ed28c1783b79b1126f33f5dde947a81ac473870052bb95327610f65303",
+    "renderer": "color-pick-CsEO1ybR.js",
+    "rendererHash": "6b928f0296933e5aae0c3988ec95d0cec11e34aa5add95bbdcdd39f8a95a63f3",
+    "hooks": "hooks-Fzz7vV7n.js",
+    "hooksHash": "d29505bcad7b049ccfdf9c92d17b2b9c2e417374042f11cd572f3c5ff5418115"
+  },
+  {
+    "version": "5.12.1",
+    "original": "9146df7ba36b9e3c004cb3ec1b094ebeb896941028fc3557aa7ab1a9495a2033",
+    "patched": "0977a99362ee1d387ffd1b9222df4238515c329dd13557640778bfbfd6cdaccc",
+    "renderer": "color-pick-CJXydejT.js",
+    "rendererHash": "d49e75028272f2e7256f387bf88f2c89cbe823c20daf147ca1390bf9a53ac4d9",
+    "hooks": "hooks--JgclY4l.js",
+    "hooksHash": "3656f9e42ff3ed9f2c4ab5006e9d7d6d1970874916efced0d928e43663b6e277"
+  }
+]
